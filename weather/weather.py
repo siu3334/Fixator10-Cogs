@@ -9,7 +9,8 @@ from redbot.core import __version__ as redbot_ver
 from redbot.core import commands
 from redbot.core.config import Config
 from redbot.core.i18n import Translator, cog_i18n, get_locale
-from redbot.core.utils import chat_formatting as chat
+from redbot.core.utils.chat_formatting import error, inline
+from redbot.core.utils.menus import close_menu, menu
 
 WEATHER_STATES = {
     "clear-day": "\N{Black Sun with Rays}",
@@ -84,15 +85,15 @@ class Weather(commands.Cog):
                     location = await r.json(loads=json.loads)
             except aiohttp.ClientResponseError as e:
                 await ctx.send(
-                    chat.error(
+                    error(
                         _("Cannot find a place {}. OSM returned {}").format(
-                            chat.inline(place), e.status
+                            inline(place), e.status
                         )
                     )
                 )
                 return
             if not location:
-                await ctx.send(chat.error(_("Cannot find a place {}").format(chat.inline(place))))
+                await ctx.send(error(_("Cannot find a place {}").format(inline(place))))
                 return
             location = location[0]
             latitude = location.get("lat", 0)
@@ -106,10 +107,10 @@ class Weather(commands.Cog):
             try:
                 async with self.session.get(base_url, params=params, headers=headers) as response:
                     if response.status != 200:
-                        return await ctx.send("RapidAPI returned non 200 HTTP response.")
+                        return await ctx.send(f"https://http.cat/{response.status}")
                     data = await response.json()
             except asyncio.TimeoutError:
-                await ctx.send(chat.error(_("Unable to get data from forecast.io")))
+                await ctx.send(error(_("Unable to get data from forecast.io")))
                 return
         by_hour = data["currently"]
 
@@ -179,7 +180,8 @@ class Weather(commands.Cog):
                 or ""
             ),
         )
-        await ctx.send(embed=em)
+        close_control = {"❌": close_menu}
+        await menu(ctx, [em], close_control)
 
     async def get_localized_units(self, ctx: commands.Context, units_type: str):
         """Get translated contextual units for type"""
