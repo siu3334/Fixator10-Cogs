@@ -1,12 +1,11 @@
 ﻿import colorsys
 import datetime
-import random
 
 import aiohttp
 import discord
 from redbot.core import checks, commands
 from redbot.core.i18n import Translator, cog_i18n
-from redbot.core.utils import chat_formatting as chat
+from redbot.core.utils.chat_formatting import box, error
 from tabulate import tabulate
 
 try:
@@ -55,6 +54,7 @@ def rgb_to_cmyk(r, g, b):
 # credits to https://www.geeksforgeeks.org/program-change-rgb-color-model-hsv-color-model/
 # logic from http://www.niwa.nu/2013/05/math-behind-colorspace-conversions-rgb-hsl/
 def rgb_to_hsv(r, g, b):
+
     # R, G, B values are divided by 255
     # to change the range from 0..255 to 0..1:
     r, g, b = r / 255.0, g / 255.0, b / 255.0
@@ -65,23 +65,16 @@ def rgb_to_hsv(r, g, b):
     diff = cmax - cmin
 
     # if cmax and cmax are equal then h = 0
-    if cmax == cmin:
-        h = 0
-
-    # if cmax equal r then compute h
-    elif cmax == r:
-        h = (60 * ((g - b) / diff) + 360) % 360
-
-    # if cmax equal g then compute h
-    elif cmax == g:
-        h = (60 * ((b - r) / diff) + 120) % 360
-
-    # if cmax equal b then compute h
-    elif cmax == b:
-        h = (60 * ((r - g) / diff) + 240) % 360
+    h = (
+        0 if cmax == cmin
+        else (60 * ((g - b) / diff) + 360) % 360
+        if cmax == r else (60 * ((b - r) / diff) + 120) % 360
+        if cmax == g else (60 * ((r - g) / diff) + 240) % 360
+    )
 
     # if cmax equal zero
     s = 0 if cmax == 0 else (diff / cmax) * 100
+
     # compute v
     v = cmax * 100
     return h, s, v
@@ -105,9 +98,6 @@ class MoreUtils(commands.Cog):
     def cog_unload(self):
         self.bot.loop.create_task(self.session.close())
 
-    async def red_delete_data_for_user(self, **kwargs):
-        return
-
     @commands.command(name="thetime")
     async def _thetime(self, ctx):
         """Displays the current time of the server."""
@@ -122,78 +112,35 @@ class MoreUtils(commands.Cog):
         rgb_coords = [x / 255 for x in colorrgb]
         colorhsv = rgb_to_hsv(*colorrgb)
         h, l, s = colorsys.rgb_to_hls(*rgb_coords)
-        colorhls = (colorhsv[0], l * 100, s * 100)
+        colorhls = (h, l * 100, s * 100)
         coloryiq = colorsys.rgb_to_yiq(*rgb_coords)
         colorcmyk = rgb_to_cmyk(*colorrgb)
+        async with self.session.get(
+            f"https://api.alexflipnote.dev/color/{str(color)[1:]}"
+        ) as data:
+            color_name = (await data.json()).get("name", "Unknown")
+            image_thumbnail = (await data.json()).get("image")
+            image_gradient = (await data.json()).get("image_gradient")
         colors_text = (
-            "`HEX :` {}\n"
-            "`RGB :` {}\n"
-            "`CMYK:` {}\n"
-            "`HSV :` {}\n"
-            "`HLS :` {}\n"
-            "`YIQ :` {}\n"
-            "`Int :` {}".format(
-                str(color),
-                colorrgb,
-                tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, colorcmyk)),
-                tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, colorhsv)),
-                tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, colorhls)),
-                tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, coloryiq)),
-                color.value,
-            )
+            "\u200b\n"
+            + f"`Name :`  {str(color_name)}\n"
+            + f"`RGB  :`  {colorrgb}\n"
+            + f"`CMYK :`  {tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, colorcmyk))}\n"
+            + f"`HSV  :`  {tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, colorhsv))}\n"
+            + f"`HLS  :`  {tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, colorhls))}\n"
+            + f"`YIQ  :`  {tuple(map(lambda x: isinstance(x, float) and round(x, 2) or x, coloryiq))}\n"
+            + f"`INT  :`  {color.value}\n\u200b"
         )
         em = discord.Embed(
-            title=str(color),
-            description=_("`Name:` Loading...\n") + colors_text,
+            title=f"🖌️ Details of the color **{str(color)}**:",
+            description=colors_text,
             url=f"http://www.color-hex.com/color/{str(color)[1:]}",
             colour=color,
-            timestamp=ctx.message.created_at,
         )
         # CAUTION: That can fail soon
-        em.set_thumbnail(url=f"https://api.alexflipnote.dev/color/image/{str(color)[1:]}")
-        em.set_image(url=f"https://api.alexflipnote.dev/color/image/gradient/{str(color)[1:]}")
-        m = await ctx.send(embed=em)
-        async with self.session.get(
-            "https://www.thecolorapi.com/id", params={"hex": str(color)[1:]}
-        ) as data:
-            color_response = await data.json(loads=json.loads)
-            em.description = (
-                _("`Name:` {} ({})\n").format(
-                    color_response.get("name", {}).get("value", "?"),
-                    color_response.get("name", {}).get("closest_named_hex", "?"),
-                )
-                + colors_text
-            )
-        await m.edit(embed=em)
-
-    @commands.guild_only()
-    @commands.command()
-    async def someone(self, ctx, *, text: str = None):
-        """Help I've fallen and I need @someone.
-
-        Discord 2018 April Fools."""
-        smilies = [
-            "¯\\_(ツ)_/¯",
-            "(∩ ͡° ͜ʖ ͡°)⊃━☆ﾟ. o ･ ｡ﾟ",
-            "(∩ ͡° ͜ʖ ͡°)⊃━✿✿✿✿✿✿",
-            "༼ つ ◕_◕ ༽つ",
-            "(◕‿◕✿)",
-            "(⁄ ⁄•⁄ω⁄•⁄ ⁄)",
-            "(╯°□°）╯︵ ┻━┻",
-            "ಠ_ಠ",
-            "¯\\(°_o)/¯",
-            "（✿ ͡◕ ᴗ◕)つ━━✫・o。",
-            "ヽ༼ ಠ益ಠ ༽ﾉ",
-        ]
-        smile = random.choice(smilies)
-        member = random.choice(ctx.channel.members)
-        await ctx.send(
-            "**@someone** {} ***{}*** {}".format(
-                smile,
-                chat.escape(member.display_name, mass_mentions=True),
-                chat.escape(text, mass_mentions=True) if text else "",
-            )
-        )
+        em.set_thumbnail(url=image_thumbnail)
+        em.set_image(url=image_gradient)
+        await ctx.send(embed=em)
 
     @commands.command(pass_context=True)
     @commands.cooldown(1, 10, commands.BucketType.user)
@@ -208,33 +155,15 @@ class MoreUtils(commands.Cog):
                     response = await data.json(loads=json.loads)
             except Exception as e:
                 await ctx.send(
-                    chat.error(
+                    error(
                         _("Unable to get data from https://discordstatus.com: {}").format(e)
                     )
                 )
                 return
             status = response["status"]
+            status_name = DISCORD_STATUS_NAMES.get(status['indicator'], status['indicator'])
             components = response["components"]
-            if await ctx.embed_requested():
-                embed = discord.Embed(
-                    title=_("Discord Status"),
-                    description=_(
-                        DISCORD_STATUS_NAMES.get(status["indicator"], status["indicator"])
-                    ),
-                    timestamp=datetime.datetime.fromisoformat(response["page"]["updated_at"])
-                    .astimezone(datetime.timezone.utc)
-                    .replace(tzinfo=None),  # make naive
-                    color=await ctx.embed_color(),
-                    url="https://discordstatus.com",
-                )
-                for component in components:
-                    embed.add_field(
-                        name=component["name"],
-                        value=component["status"].capitalize().replace("_", " "),
-                    )
-                await ctx.send(embed=embed)
-            else:
-                await ctx.send(
-                    f"{_(DISCORD_STATUS_NAMES.get(status['indicator'], status['indicator']))}\n"
-                    f"{chat.box(tabulate([(c['name'], c['status'].capitalize().replace('_', ' ')) for c in components]))}"
-                )
+            table = tabulate(
+                [(c['name'], c['status'].capitalize().replace('_', ' ')) for c in components]
+            )
+            await ctx.send(f"{_(status_name)}\n{box(table)}")
